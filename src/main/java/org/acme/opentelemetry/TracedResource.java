@@ -1,7 +1,6 @@
 package org.acme.opentelemetry;
 
 import java.util.List;
-import java.util.function.Consumer;
 
 import javax.inject.Inject;
 import javax.ws.rs.GET;
@@ -9,11 +8,8 @@ import javax.ws.rs.Path;
 import javax.ws.rs.Produces;
 import javax.ws.rs.core.MediaType;
 
-import org.acme.hibernate.reactive.Fruit;
-import org.hibernate.reactive.mutiny.Mutiny;
-
 import io.opentelemetry.extension.annotations.WithSpan;
-import io.quarkus.vertx.ConsumeEvent;
+import io.smallrye.mutiny.Multi;
 import io.smallrye.mutiny.Uni;
 import io.vertx.mutiny.core.eventbus.EventBus;
 
@@ -21,27 +17,25 @@ import io.vertx.mutiny.core.eventbus.EventBus;
 public class TracedResource {
 
     @Inject
-    EventBus eventBus;
+    TraceA traceA;
 
     @Inject
-    Mutiny.SessionFactory sessionFactory;
+    TraceB traceB;
+
+    @Inject
+    TraceC traceC;
 
     @GET
     @Produces(MediaType.TEXT_PLAIN)
+    @WithSpan
     public Uni<String> hello() {
-        return Uni.createFrom().item("Hello RESTEasy")
-                .onItem().invoke(() -> this.eventBus.send("bus", "Hello EventBus"));
-    }
-
-    @ConsumeEvent("bus")
-    public Uni<Void> onBusEvent(final String msg) {
-        System.out.println("Received " + msg);
-        return getFruits() //
-            .onItem().invoke((Consumer<List<Fruit>>) System.out::println) //
-            .replaceWithVoid();
-    }
-
-    public Uni<List<Fruit>> getFruits() {
-       return sessionFactory.withTransaction((s, t) -> s.createNamedQuery("Fruits.findAll", Fruit.class).getResultList());
+        return Uni.createFrom().item(0).call(() -> traceC.doSomething()
+                .chain(ignore -> Multi.createFrom().iterable(List.of("a","b")).onItem().transformToUniAndMerge(value -> {
+            if (value.equals("a")) {
+                return traceA.doSomething();
+            } else {
+                return traceB.doSomething();
+            }
+        }).collect().last())).replaceWith("ignore");
     }
 }
